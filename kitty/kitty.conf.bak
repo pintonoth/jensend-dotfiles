@@ -1,0 +1,19 @@
+# BACKGROUND
+background_opacity 0.8
+background_blur 30
+
+# CURSOR
+cursor_trail 3
+cursor_trail_decay 0.1 0.4
+
+# BEGIN_KITTY_FONTS
+font_family      family="JetBrainsMonoNL Nerd Font"
+bold_font        auto
+italic_font      auto
+bold_italic_font auto
+# END_KITTY_FONTS
+
+# Generated and updated by Noctalia's built-in Kitty template.
+include themes/noctalia.conf
+
+confirm_os_window_close 2

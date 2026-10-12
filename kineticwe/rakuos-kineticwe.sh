@@ -132,12 +132,42 @@ is_vm() { command -v systemd-detect-virt >/dev/null && systemd-detect-virt -q; }
 # space is measured by avail_gb() above; 'df --output=avail' can report 0 on btrfs
 # subvolumes and inside containers, which produced a bogus "only 0G free" refusal.
 
-wait_for_internet() {         # generous on purpose: a 3s probe is what went wrong upstream
-    local tries="${1:-8}" i
+# Connectivity probes that do not lie about *why* they failed. Two traps learned the hard
+# way: a 3-second timeout is too short for a first name-resolve, and a broken CA trust store
+# makes every HTTPS attempt fail in a way indistinguishable from "no internet" —
+#   curl: (77) error adding trust anchors from file: .../tls-ca-bundle.pem
+# — which is what the vendor's own probe hits too.
+CA_REPAIRED=0
+PROBE_URL="https://mirrors.fedoraproject.org/"
+PROBE_HOST_PORT="download.copr.fedorainfracloud.org/443"
+
+# TLS-free liveness: DNS for the repo host plus a TCP handshake to it.
+net_tcp_ok() { timeout 8 bash -c "exec 3<>/dev/tcp/${PROBE_HOST_PORT}" 2>/dev/null; }
+
+wait_for_internet() {
+    local tries="${1:-8}" i err
+    [ "$DRY_RUN" = 1 ] && return 0
     for i in $(seq 1 "$tries"); do
-        if [ "$DRY_RUN" = 1 ]; then return 0; fi
-        if curl -fsS -o /dev/null --connect-timeout 10 --max-time 25 https://mirrors.fedoraproject.org/; then
-            ok "internet reachable (attempt $i)"; return 0
+        err="$(curl -fsS -o /dev/null --connect-timeout 10 --max-time 25 "$PROBE_URL" 2>&1)" && {
+            ok "internet reachable over HTTPS (attempt $i)"; return 0; }
+        case "$err" in
+            *"error adding trust anchors"*|*"unable to get local issuer"*|*"certificate"*|*"SSL"*|*"self-signed"*)
+                warn "HTTPS is failing because of the CA trust store, not the network:"
+                warn "  $(echo "$err" | head -1)"
+                if [ "$CA_REPAIRED" = 0 ] && command -v update-ca-trust >/dev/null; then
+                    CA_REPAIRED=1
+                    info "regenerating it (update-ca-trust extract) and retrying…"
+                    update-ca-trust extract 2>&1 | sed 's/^/    /' || true
+                    continue
+                fi
+                ;;
+            *"timed out"*|*"Could not resolve"*|*"Could not connect"*) : ;;
+            *) warn "curl said: $(echo "$err" | head -1)" ;;
+        esac
+        if net_tcp_ok; then
+            warn "network is up (DNS + TCP to ${PROBE_HOST_PORT%/*} work) but HTTPS still fails —"
+            warn "packages may not install until the CA trust store is fixed: sudo update-ca-trust"
+            return 0
         fi
         info "waiting for internet… ($i/$tries)"
         sleep 10
@@ -151,6 +181,12 @@ stage1() {
     step "Preflight"
     info "distro       : $(. /etc/os-release; echo "${PRETTY_NAME:-unknown}")"
     info "virt         : $(virt_kind)"
+    if [ -e /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem ]; then
+        info "CA bundle    : present ($(wc -c < /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem) bytes)"
+    else
+        warn "CA bundle    : /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem is MISSING —"
+        warn "               HTTPS will fail until it exists: sudo update-ca-trust extract"
+    fi
     if in_container; then
         info "container    : $(systemd-detect-virt --container)"
         die "this is a container, not a bootable installation. The script rebases the machine it runs on, so run it inside a RakuOS VM or on real hardware — not in distrobox/podman/docker."

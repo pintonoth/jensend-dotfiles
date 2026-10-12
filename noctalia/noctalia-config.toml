@@ -1,0 +1,199 @@
+[bar.default]
+background_opacity = 0.84999998100101948
+capsule_radius = 5
+center = [
+    "indicator",
+    "divider-left",
+    "summary",
+    "divider-left",
+    "workspaces",
+    "divider-right",
+    "wallpaper",
+    "recorder",
+    "clipboard",
+    "volume",
+    "network",
+    "divider-right",
+    "tray"
+]
+concave_edge_corners = false
+end = [ "notifications", "clock" ]
+font_family = "Maple Mono NF"
+margin_ends = 762
+radius_top_left = 0
+radius_top_right = 0
+start = [ "active_window", "audio_visualizer" ]
+widget_spacing = 10
+
+[dock]
+background_opacity = 0.84999998100101948
+concave_edge_corners = false
+enabled = true
+launcher_position = "start"
+pinned = [ "thunar", "firefox", "equibop", "steam", "spotify-launcher", "dev.zed.Zed" ]
+radius_bottom_left = 0
+radius_bottom_right = 0
+show_dots = true
+
+[location]
+address = "Ho Chi Minh"
+
+[lockscreen_widgets]
+enabled = false
+schema_version = 2
+widget_order = [ "lockscreen-login-box@Virtual-virtual-xdp-kde-discord", "lockscreen-login-box@DP-2" ]
+
+    [lockscreen_widgets.grid]
+    cell_size = 16
+    major_interval = 4
+    visible = true
+
+    [lockscreen_widgets.widget."lockscreen-login-box@DP-2"]
+    box_height = 196.0
+    box_width = 810.0
+    cx = 1280.0
+    cy = 898.0
+    output = "DP-2"
+    placement_height = 1080.0
+    placement_width = 2560.0
+    rotation = 0.0
+    type = "login_box"
+
+        [lockscreen_widgets.widget."lockscreen-login-box@DP-2".settings]
+        background_color = "surface_variant"
+        background_opacity = 0.88
+        background_radius = 12.0
+        center_password_text = false
+        input_opacity = 1.0
+        input_radius = 6.0
+        layout = "regular"
+        show_caps_lock = true
+        show_keyboard_layout = true
+        show_login_button = true
+        show_media = true
+        show_session_buttons = true
+        show_unlock_hint = true
+        show_weather = true
+
+    [lockscreen_widgets.widget."lockscreen-login-box@Virtual-virtual-xdp-kde-discord"]
+    box_height = 196.0
+    box_width = 810.0
+    cx = 960.0
+    cy = 898.0
+    output = "Virtual-virtual-xdp-kde-discord"
+    placement_height = 1080.0
+    placement_width = 1920.0
+    rotation = 0.0
+    type = "login_box"
+
+        [lockscreen_widgets.widget."lockscreen-login-box@Virtual-virtual-xdp-kde-discord".settings]
+        background_color = "surface_variant"
+        background_opacity = 0.88
+        background_radius = 12.0
+        center_password_text = false
+        input_opacity = 1.0
+        input_radius = 6.0
+        layout = "regular"
+        show_caps_lock = true
+        show_keyboard_layout = true
+        show_login_button = true
+        show_media = true
+        show_session_buttons = true
+        show_unlock_hint = true
+        show_weather = true
+
+[notification]
+background_opacity = 0.84999998100101948
+
+[osd]
+background_opacity = 0.84999998100101948
+
+[plugins]
+enabled = [ "theblackdon/kineticwe-layouts", "noctalia/screen_recorder", "tmelik/system-monitor", "joshuaslate/shelly" ]
+
+[shell]
+font_family = "Maple Mono NF"
+polkit_agent = true
+
+    [shell.panel]
+    control_center_placement = "floating"
+    session_placement = "floating"
+    transparency_mode = "soft"
+    wallpaper_placement = "floating"
+
+[theme]
+builtin = "Catppuccin"
+community_palette = "Catppuccin Frappe Blue"
+mode = "dark"
+source = "builtin"
+
+    [theme.templates]
+    builtin_ids = [ "alacritty", "btop", "gtk3", "gtk4", "kcolorscheme", "kineticwe", "kitty", "qt" ]
+    community_ids = [ "brave-origin", "pywalfox" ]
+
+[wallpaper.default]
+path = "/home/jensend/Pictures/maligne-lake-from-spirit-island-jasper-national-park-backiee-4K.jpg"
+
+[wallpaper.last]
+path = "/home/jensend/Pictures/maligne-lake-from-spirit-island-jasper-national-park-backiee-4K.jpg"
+
+[wallpaper.monitors.DP-2]
+path = "/home/jensend/Pictures/maligne-lake-from-spirit-island-jasper-national-park-backiee-4K.jpg"
+
+[widget.active_window]
+display = "text_only"
+max_length = 100
+title_scroll = "on_hover"
+
+[widget.audio_visualizer]
+centered = false
+mirrored = false
+
+[widget.clock]
+format = "{:%H:%M, %d.%m.%y}"
+
+[widget.divider-left]
+text = "\\"
+type = "text"
+
+[widget.divider-right]
+text = "/"
+type = "text"
+
+[widget.indicator]
+type = "theblackdon/kineticwe-layouts:indicator"
+
+[widget.network]
+show_label = false
+
+[widget.notifications]
+hide_when_no_unread = true
+
+[widget.recorder]
+type = "noctalia/screen_recorder:recorder"
+
+[widget.summary]
+show_cpu_usage = false
+show_disk = false
+show_download = false
+show_gpu_temperature = "on"
+show_gpu_usage = "off"
+show_gpu_vram = "off"
+show_ram = false
+show_separators = false
+show_swap = false
+show_upload = false
+type = "tmelik/system-monitor:summary"
+
+[widget.tray]
+detached_panel = true
+drawer = true
+match_adjacent_spacing = true
+pinned = [ "Fcitx", "Discord", "equibop" ]
+
+[widget.volume]
+show_label = false
+
+[widget.workspaces]
+anchor = true
+style = "minimal"
