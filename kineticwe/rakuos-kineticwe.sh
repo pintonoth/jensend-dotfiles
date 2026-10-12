@@ -65,6 +65,23 @@ run() {                       # run a command, or print it in --dry-run
     "$@"
 }
 
+# Long steps (image download, package install) can run for minutes without printing
+# anything of their own. This prints an elapsed-time heartbeat so the script never *looks*
+# hung, while leaving the command's own progress output (when it has any) untouched.
+run_long() {
+    local what="$1"; shift
+    if [ "$DRY_RUN" = 1 ]; then printf '    [dry-run] %s\n' "$*"; return 0; fi
+    printf '    $ %s\n' "$*"
+    "$@" & local pid=$!
+    local t=0
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 10; t=$((t + 10))
+        kill -0 "$pid" 2>/dev/null || break
+        printf '    … %s still working (%ss)\n' "$what" "$t"
+    done
+    wait "$pid"
+}
+
 confirm() {
     local q="$1"
     [ "$ASSUME_YES" = 1 ] && return 0
@@ -268,7 +285,8 @@ EOF
     ok "stage 2 will run 45s after your next boot (logs: journalctl -fu $UNIT_S2)"
 
     step "Rebase"
-    run bootc switch "$img"
+    info "this downloads the base image (typically ~3.5 GB) — the slow part of stage 1"
+    run_long "bootc switch" bootc switch "$img"
     if [ "$VM_SERIAL" = 1 ]; then
         step "Serial console (VM only)"
         run mkdir -p /usr/lib/bootc/kargs.d
@@ -371,9 +389,9 @@ stage2() {
         printf '    [dry-run] rum install -y %s\n' "${PKGS[*]}"
     else
         local done_ok=0
-        rum install -y "${PKGS[@]}"          && done_ok=1 \
-        || rum install --assumeyes "${PKGS[@]}" && done_ok=1 \
-        || dnf install -y "${PKGS[@]}"       && done_ok=1 \
+        run_long "package install" rum install -y "${PKGS[@]}"                && done_ok=1 \
+        || run_long "package install" rum install --assumeyes "${PKGS[@]}"    && done_ok=1 \
+        || run_long "package install" dnf install -y "${PKGS[@]}"             && done_ok=1 \
         || warn "package install returned non-zero — check the output above"
         [ "$done_ok" = 1 ] || die "could not install the package set."
     fi
@@ -507,7 +525,12 @@ done
 
 [ -n "$STAGE" ] || { usage; exit 1; }
 [ "$STAGE" = status ] || need_root
-if [ -w /var/log ] && [ -z "${RK_NO_LOG:-}" ]; then
+# Log to a file only when nobody is watching: sending stdout through 'tee' turns it into a
+# pipe, and tools that render progress (bootc, dnf/rum) then silently disable it. That is
+# exactly why "bootc switch" showed one line and then looked frozen for 3.5 GB of download.
+if [ -t 1 ] && [ -t 2 ]; then
+    printf '%s\n' "(interactive run: full output on screen; stage-2 runs log to $LOG)"
+elif [ -w /var/log ] && [ -z "${RK_NO_LOG:-}" ]; then
     exec > >(tee -a "$LOG") 2>&1
 fi
 printf '%s\n' "=== rakuos-kineticwe $STAGE  $(date -u '+%F %T UTC') ==="
