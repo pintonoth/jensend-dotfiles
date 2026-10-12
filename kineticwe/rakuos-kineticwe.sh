@@ -94,8 +94,19 @@ in_container() {
 
 virt_kind() { systemd-detect-virt 2>/dev/null || echo unknown; }
 
-# Free space as whole GB, or empty when it cannot be determined.
-avail_gb() { df -Pk "$1" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}'; }
+# Free space as whole GB, or empty when it cannot be determined. On bootc systems '/'
+# is a read-only composefs mount reporting 0 available, and measuring it is what caused a
+# bogus "only 0G free" refusal on a machine with 94 GB spare: skip image/pseudo filesystems
+# and judge the filesystem the deployments actually live on (same device as /var).
+avail_gb() {
+    local path="$1" fstype
+    [ -d "$path" ] || return 0
+    fstype="$(df -PTk "$path" 2>/dev/null | awk 'NR==2 {print $2}')"
+    case "$fstype" in
+        composefs|overlay|overlayfs|squashfs|erofs|tmpfs|ramfs|autofs|proc|sysfs|devtmpfs|none|'') return 0 ;;
+    esac
+    df -Pk "$path" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}'
+}
 
 have_desktop() {
     command -v plasmashell >/dev/null || command -v gnome-shell >/dev/null \
@@ -149,10 +160,18 @@ stage1() {
     id "$TARGET_USER" >/dev/null 2>&1 || die "no such user: $TARGET_USER"
     have_desktop || die "no desktop detected — you are probably already on the base image. Run: sudo $(basename "$0") --stage2"
     local img; if detect_nvidia; then img="$IMG_NVIDIA"; info "NVIDIA GPU detected"; else img="$IMG_AMD64"; fi
-    local f_root f_var free
-    f_root="$(avail_gb /)"; f_var="$(avail_gb /var)"
-    info "free space   : / = ${f_root:-?} GB, /var = ${f_var:-?} GB  (rebase needs ~4 GB where it unpacks)"
-    free="${f_root:-0}"; [ -n "${f_var:-}" ] && [ "${f_var:-0}" -gt "$free" ] && free="$f_var"
+    local free=0 seen="" dev v
+    for p in /var /ostree /; do
+        [ -d "$p" ] || continue
+        dev="$(df -Pk "$p" 2>/dev/null | awk 'NR==2 {print $1}')"
+        [ -n "${dev:-}" ] || continue
+        case "$seen" in *"|$dev|"*) continue ;; esac      # /var and /ostree share a device
+        v="$(avail_gb "$p")"; [ -n "${v:-}" ] || continue # empty = image/pseudo filesystem
+        seen="$seen|$dev|"
+        info "free space   : $p ($dev) = ${v} GB"
+        [ "$v" -gt "$free" ] && free="$v"
+    done
+    [ "$free" -gt 0 ] && info "free space   : judging the largest of the above (need ~4 GB to unpack)"
     if [ "$SKIP_SPACE" = 0 ] && [ "${free:-0}" -lt 4 ]; then
         warn "only ${free} GB reported free where the rebase must unpack (~4 GB needed)."
         warn "btrfs subvolume quotas and some virtual/container setups report this wrongly;"
@@ -396,7 +415,8 @@ status() {
     info "image        : $(current_image)"
     info "distro       : $(. /etc/os-release; echo "${PRETTY_NAME:-unknown}")"
     info "virt         : $(virt_kind)"
-    info "free space   : / = $(avail_gb /) GB, /var = $(avail_gb /var) GB"
+    for p in /var /ostree /; do [ -d "$p" ] || continue; v="$(avail_gb "$p")"; \
+        [ -n "${v:-}" ] && info "free space   : $p = ${v} GB ($(df -Pk "$p" | awk 'NR==2 {print $1}'))"; done
     info "desktop      : $(have_desktop && echo yes || echo 'no (base image)')"
     local rv cv
     rv="$(cat /var/lib/rakuos/os-version 2>/dev/null || echo '?')"
