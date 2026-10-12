@@ -22,6 +22,7 @@
 #   --auto        non-interactive, as used by the stage-2 timer unit
 #   --user NAME   desktop user whose login shell to fix (default: $SUDO_USER)
 #   --no-reboot   never offer to reboot at the end
+#   --skip-space-check  override the free-space preflight (btrfs/quota misreports)
 #   --help
 #
 # Revert: see "Every local change this makes" in rakuos-base-kineticwe-steps.md, or run
@@ -44,7 +45,7 @@ UNIT_S2="rakuos-kineticwe-stage2.service"
 UNIT_S2_TIMER="rakuos-kineticwe-stage2.timer"
 LOG="/var/log/rakuos-kineticwe.log"
 
-DRY_RUN=0; ASSUME_YES=0; AUTO=0; FORCE_NVIDIA=0; VM_SERIAL=0; NO_REBOOT=0
+DRY_RUN=0; ASSUME_YES=0; AUTO=0; FORCE_NVIDIA=0; VM_SERIAL=0; NO_REBOOT=0; SKIP_SPACE=0
 TARGET_USER="${SUDO_USER:-}"
 
 # ---------------------------------------------------------------- output
@@ -78,11 +79,23 @@ confirm() {
 need_root() { [ "$(id -u)" = 0 ] || die "run this with sudo (it rebases the OS and installs packages)."; }
 
 is_rakuos() {
-    [ -e /var/lib/rakuos ] && command -v bootc >/dev/null && return 0
-    grep -qiE '^ID(_LIKE)?=.*(rakuos|fedora)' /etc/os-release 2>/dev/null \
-        && [ -e /var/lib/rakuos ] && return 0
-    return 1
+    # Require RakuOS's own tooling, not merely "a Fedora-ish box": this script rebases the
+    # machine it runs on, so a plain Fedora, Kinoite, Arch or CachyOS host must not pass.
+    [ -e /var/lib/rakuos ] || return 1
+    command -v bootc >/dev/null || return 1
+    [ -d /usr/libexec/rakuos ] || [ -d /usr/share/rakuos ] || return 1
+    return 0
 }
+
+in_container() {
+    command -v systemd-detect-virt >/dev/null || return 1
+    [ "$(systemd-detect-virt --container 2>/dev/null)" != "none" ]
+}
+
+virt_kind() { systemd-detect-virt 2>/dev/null || echo unknown; }
+
+# Free space as whole GB, or empty when it cannot be determined.
+avail_gb() { df -Pk "$1" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1048576}'; }
 
 have_desktop() {
     command -v plasmashell >/dev/null || command -v gnome-shell >/dev/null \
@@ -105,7 +118,8 @@ detect_nvidia() {
 
 is_vm() { command -v systemd-detect-virt >/dev/null && systemd-detect-virt -q; }
 
-free_space_gb() { df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9'; }
+# space is measured by avail_gb() above; 'df --output=avail' can report 0 on btrfs
+# subvolumes and inside containers, which produced a bogus "only 0G free" refusal.
 
 wait_for_internet() {         # generous on purpose: a 3s probe is what went wrong upstream
     local tries="${1:-8}" i
@@ -124,13 +138,27 @@ wait_for_internet() {         # generous on purpose: a 3s probe is what went wro
 
 stage1() {
     step "Preflight"
-    is_rakuos || die "this is not a RakuOS installation (no /var/lib/rakuos + bootc). For a plain Fedora/Kinoite system, see the 'Possible shortcut' section of the .md instead."
+    info "distro       : $(. /etc/os-release; echo "${PRETTY_NAME:-unknown}")"
+    info "virt         : $(virt_kind)"
+    if in_container; then
+        info "container    : $(systemd-detect-virt --container)"
+        die "this is a container, not a bootable installation. The script rebases the machine it runs on, so run it inside a RakuOS VM or on real hardware — not in distrobox/podman/docker."
+    fi
+    is_rakuos || die "this is not a RakuOS installation (needs /var/lib/rakuos, bootc and /usr/libexec/rakuos). For a plain Fedora/Kinoite system see the 'Possible shortcut' section of the .md."
     [ -n "$TARGET_USER" ] || die "cannot tell which user to fix; pass --user NAME"
     id "$TARGET_USER" >/dev/null 2>&1 || die "no such user: $TARGET_USER"
     have_desktop || die "no desktop detected — you are probably already on the base image. Run: sudo $(basename "$0") --stage2"
     local img; if detect_nvidia; then img="$IMG_NVIDIA"; info "NVIDIA GPU detected"; else img="$IMG_AMD64"; fi
-    local free; free="$(free_space_gb)"; [ -n "$free" ] && [ "$free" -lt 8 ] && \
-        die "only ${free}G free on /; the rebase needs ~4 GB plus room to unpack. Free some space first."
+    local f_root f_var free
+    f_root="$(avail_gb /)"; f_var="$(avail_gb /var)"
+    info "free space   : / = ${f_root:-?} GB, /var = ${f_var:-?} GB  (rebase needs ~4 GB where it unpacks)"
+    free="${f_root:-0}"; [ -n "${f_var:-}" ] && [ "${f_var:-0}" -gt "$free" ] && free="$f_var"
+    if [ "$SKIP_SPACE" = 0 ] && [ "${free:-0}" -lt 4 ]; then
+        warn "only ${free} GB reported free where the rebase must unpack (~4 GB needed)."
+        warn "btrfs subvolume quotas and some virtual/container setups report this wrongly;"
+        warn "check with 'df -h / /var'. If the number is wrong: --skip-space-check"
+        die "not enough free space reported — refusing to start a rebase that would fill the disk."
+    fi
     info "target image : $img"
     info "current image: $(current_image)"
     info "desktop user : $TARGET_USER"
@@ -366,7 +394,9 @@ status() {
     step "RakuOS / KineticWE status"
     if ! is_rakuos; then warn "this does not look like a RakuOS system"; return 1; fi
     info "image        : $(current_image)"
-    info "virt         : $(is_vm && echo yes || echo no)"
+    info "distro       : $(. /etc/os-release; echo "${PRETTY_NAME:-unknown}")"
+    info "virt         : $(virt_kind)"
+    info "free space   : / = $(avail_gb /) GB, /var = $(avail_gb /var) GB"
     info "desktop      : $(have_desktop && echo yes || echo 'no (base image)')"
     local rv cv
     rv="$(cat /var/lib/rakuos/os-version 2>/dev/null || echo '?')"
@@ -398,7 +428,7 @@ status() {
 
 # ---------------------------------------------------------------- main
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -411,6 +441,7 @@ while [ $# -gt 0 ]; do
         --yes) ASSUME_YES=1 ;;
         --auto) AUTO=1; ASSUME_YES=1 ;;
         --no-reboot) NO_REBOOT=1 ;;
+        --skip-space-check) SKIP_SPACE=1 ;;
         --user) shift; TARGET_USER="${1:-}" ;;
         --help|-h) usage; exit 0 ;;
         *) die "unknown option: $1 (try --help)" ;;
